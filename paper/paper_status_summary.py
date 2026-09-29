@@ -29,6 +29,7 @@ def build_paper_status_summary(report: dict, performance: dict) -> str:
         f"Closed trades: {performance.get('total_closed', 0)}",
         f"Wins: {performance.get('wins', 0)} | Losses: {performance.get('losses', 0)} | Win rate: {performance.get('win_rate', 0.0):.1f}%",
         f"Total PnL: {_money(performance.get('total_pnl', 0.0))} | Total R: {performance.get('total_r', 0.0):+.1f}R",
+        f"Cost coverage: {performance.get('complete_cost_trades', 0)} complete / {performance.get('incomplete_cost_trades', 0)} incomplete; modeled paper result only",
         "",
         "Open Trades:",
     ]

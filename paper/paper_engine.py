@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from paper.paper_costs import _nonnegative, estimate_paper_costs
 from paper.paper_filters import paper_filter_summary, paper_trade_allowed_by_filters
 from paper.paper_trade import CLOSED_SL, CLOSED_TP, OPEN, build_paper_trade_from_plan
 
@@ -79,6 +80,7 @@ class PaperExecutionEngine:
         plans: dict,
         validations: dict,
         existing_open_trades: list[dict],
+        symbol_info_map: dict[str, dict] | None = None,
     ) -> list[dict]:
         new_trades: list[dict] = []
         open_pool = list(existing_open_trades)
@@ -108,7 +110,10 @@ class PaperExecutionEngine:
                     "paper_filters_enabled": bool(getattr(self.settings, "paper_filters_enabled", False)),
                     "paper_filter_summary": paper_filter_summary(self.settings),
                 }
-                trade = build_paper_trade_from_plan(enriched_plan, validation)
+                modeled_costs = estimate_paper_costs(
+                    enriched_plan, (symbol_info_map or {}).get(symbol), self.settings
+                )
+                trade = build_paper_trade_from_plan(enriched_plan, validation, modeled_costs)
                 trade["open_reason"] = decision["reason"]
                 new_trades.append(trade)
                 open_pool.append(trade)
@@ -249,24 +254,34 @@ class PaperExecutionEngine:
 
             updated_trade["gross_pnl_amount"] = gross_pnl_amount
             updated_trade["gross_pnl_r"] = gross_pnl_r
-            spread_cost = updated_trade.get("spread_cost_amount")
-            spread_cost_known = updated_trade.get("spread_cost_known") is True
-            if spread_cost_known and spread_cost is not None:
-                total_cost_amount = max(float(spread_cost), 0.0)
-                risk_amount = float(updated_trade.get("risk_amount", 0))
-                updated_trade["total_cost_amount"] = total_cost_amount
-                updated_trade["pnl_amount"] = gross_pnl_amount - total_cost_amount
-                updated_trade["pnl_r"] = (
-                    updated_trade["pnl_amount"] / risk_amount if risk_amount > 0 else gross_pnl_r
-                )
-                updated_trade["pnl_basis"] = "NET_AFTER_SPREAD"
+            spread_cost = _nonnegative(updated_trade.get("spread_cost_amount"))
+            spread_cost_known = updated_trade.get("spread_cost_known") is True and spread_cost is not None
+            commission = _nonnegative(updated_trade.get("commission_amount"))
+            slippage = _nonnegative(updated_trade.get("slippage_cost_amount"))
+            known_costs = [
+                cost
+                for cost in (spread_cost if spread_cost_known else None, commission, slippage)
+                if cost is not None
+            ]
+            complete = spread_cost_known and commission is not None and slippage is not None
+            updated_trade["cost_model_complete"] = complete
+            updated_trade["total_cost_amount"] = sum(known_costs) if known_costs else None
+            updated_trade["pnl_amount"] = gross_pnl_amount - sum(known_costs)
+            risk_amount = float(updated_trade.get("risk_amount", 0))
+            updated_trade["pnl_r"] = updated_trade["pnl_amount"] / risk_amount if risk_amount > 0 else gross_pnl_r
+            if complete:
+                updated_trade["pnl_basis"] = "NET_AFTER_MODELED_COSTS"
+            elif spread_cost_known:
+                updated_trade["pnl_basis"] = "NET_AFTER_SPREAD" if commission is None and slippage is None else "NET_AFTER_KNOWN_COSTS"
             else:
-                updated_trade["total_cost_amount"] = None
-                updated_trade["pnl_amount"] = gross_pnl_amount
-                updated_trade["pnl_r"] = gross_pnl_r
-                updated_trade["pnl_basis"] = "GROSS_SPREAD_UNKNOWN"
-                if "Spread cost unavailable; reported PnL is gross." not in issues:
-                    issues.append("Spread cost unavailable; reported PnL is gross.")
+                updated_trade["pnl_basis"] = "GROSS_SPREAD_UNKNOWN" if not known_costs else "PARTIAL_SPREAD_UNKNOWN"
+                issue = "Spread cost unavailable; reported PnL excludes spread."
+                if issue not in issues:
+                    issues.append(issue)
+            if not complete:
+                issue = "One or more costs are unknown; PnL is not fully cost-adjusted."
+                if issue not in issues:
+                    issues.append(issue)
             updated_trade["close_reason"] = close_reason
             return updated_trade
 

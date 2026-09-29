@@ -16,17 +16,26 @@ from strategy.signal_rules import (
 from strategy.signal_types import (
     BAD_SPREAD,
     ELIGIBLE,
+    EXTREME_VOLATILITY,
     INSUFFICIENT_DATA,
     LOW_VOLATILITY,
     MIXED_BIAS,
     NEUTRAL_BIAS,
     NO_TRADE,
     REJECTED,
+    TIMEFRAME_NOT_TRADABLE,
     WATCHLIST,
 )
 
-
-HARD_REJECTIONS = {BAD_SPREAD, LOW_VOLATILITY, MIXED_BIAS, NEUTRAL_BIAS, INSUFFICIENT_DATA}
+HARD_REJECTIONS = {
+    BAD_SPREAD,
+    EXTREME_VOLATILITY,
+    INSUFFICIENT_DATA,
+    LOW_VOLATILITY,
+    MIXED_BIAS,
+    NEUTRAL_BIAS,
+    TIMEFRAME_NOT_TRADABLE,
+}
 
 
 def _add_condition(target: list[str], text: str) -> None:

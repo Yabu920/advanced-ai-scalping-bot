@@ -64,3 +64,17 @@ def test_watchlist_signal_creates_preview_but_executable_false() -> None:
     plan = TradePlanBuilder(settings()).build_plan(signal("WATCHLIST"), account(), symbol_info())
     assert plan["valid"] is True
     assert plan["executable_later"] is False
+
+
+def test_fixed_risk_is_capped_and_plan_reports_effective_percent() -> None:
+    fixed_settings = settings()
+    fixed_settings.use_fixed_risk_amount = True
+    fixed_settings.fixed_risk_amount = 25.0
+
+    plan = TradePlanBuilder(fixed_settings).build_plan(
+        signal("ELIGIBLE"), account(), symbol_info()
+    )
+
+    assert plan["risk_amount"] == 10.0
+    assert plan["risk_percent"] == 1.0
+    assert "Fixed risk amount was capped" in plan["notes"][-1]

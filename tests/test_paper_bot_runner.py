@@ -168,7 +168,7 @@ def make_runner(tmp_path, candle_time: str = "2026-06-17T10:00:00+00:00") -> Pap
 
 def test_runner_skips_cycle_when_no_new_candle_and_enabled(tmp_path) -> None:
     runner = make_runner(tmp_path)
-    runner.last_primary_candle_time = "2026-06-17T10:00:00+00:00"
+    runner.last_closed_candle_times[("GBPUSDm", "M5")] = pd.Timestamp("2026-06-17T10:00:00Z")
     result = runner.run_cycle(1)
     assert result["skipped"] is True
 
@@ -179,6 +179,50 @@ def test_runner_processes_cycle_when_new_candle_appears(tmp_path, monkeypatch) -
     result = runner.run_cycle(1)
     assert result["skipped"] is False
     assert len(result["new_trades"]) == 1
+
+
+def test_delayed_symbol_candle_is_processed_even_if_other_symbol_is_ahead(tmp_path, monkeypatch) -> None:
+    patch_pipeline(monkeypatch)
+    runner = make_runner(tmp_path)
+    runner.market_data.get_multi_symbol_rates = lambda *args: {
+        "GBPUSDm": {"M5": market_df("2026-06-17T10:05:00Z")},
+        "EURUSDm": {"M5": market_df("2026-06-17T10:00:00Z")},
+    }
+    runner.last_closed_candle_times[("GBPUSDm", "M5")] = pd.Timestamp("2026-06-17T10:05:00Z")
+
+    result = runner.run_cycle(1)
+
+    assert result["skipped"] is False
+    assert result["new_trades"] == []  # The unchanged GBP plan must not be reopened.
+    assert runner.last_closed_candle_times[("EURUSDm", "M5")] == pd.Timestamp("2026-06-17T10:00:00Z")
+
+
+def test_m1_candle_triggers_cycle_when_m5_is_unchanged(tmp_path, monkeypatch) -> None:
+    patch_pipeline(monkeypatch)
+    runner = make_runner(tmp_path)
+    runner.settings.signal_timeframes = ["M1", "M5"]
+    runner.market_data.get_multi_symbol_rates = lambda *args: {
+        "GBPUSDm": {
+            "M1": market_df("2026-06-17T10:01:00Z"),
+            "M5": market_df("2026-06-17T10:00:00Z"),
+        }
+    }
+    runner.last_closed_candle_times[("GBPUSDm", "M1")] = pd.Timestamp("2026-06-17T10:00:00Z")
+    runner.last_closed_candle_times[("GBPUSDm", "M5")] = pd.Timestamp("2026-06-17T10:00:00Z")
+
+    result = runner.run_cycle(1)
+
+    assert result["skipped"] is False
+    assert result["new_trades"] == []  # M5 has no new signal candle.
+    assert runner.last_closed_candle_times[("GBPUSDm", "M1")] == pd.Timestamp("2026-06-17T10:01:00Z")
+
+
+def test_older_closed_candle_never_moves_market_watermark_backwards(tmp_path) -> None:
+    runner = make_runner(tmp_path, candle_time="2026-06-17T10:00:00Z")
+    runner.last_closed_candle_times[("GBPUSDm", "M5")] = pd.Timestamp("2026-06-17T10:05:00Z")
+    result = runner.run_cycle(1)
+    assert result["skipped"] is True
+    assert runner.last_closed_candle_times[("GBPUSDm", "M5")] == pd.Timestamp("2026-06-17T10:05:00Z")
 
 
 def test_runner_stops_after_configured_closed_trade_target(tmp_path) -> None:

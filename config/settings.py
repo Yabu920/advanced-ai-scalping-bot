@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-import os
 
 from config.symbols import normalize_symbol
 
@@ -70,6 +70,16 @@ def _safe_float(value: str | None, default: float) -> float:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _optional_nonnegative_float(value: str | None) -> float | None:
+    if value is None or not value.strip():
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed >= 0 else None
 
 
 def _safe_bounded_int(value: str | None, default: int, minimum: int, maximum: int | None = None) -> int:
@@ -140,6 +150,8 @@ class Settings:
     paper_max_open_trades: int
     paper_max_open_trades_per_symbol: int
     paper_use_pre_execution_validation: bool
+    paper_commission_per_lot_round_trip: float | None
+    paper_slippage_points_per_side: float | None
     paper_bot_loop_enabled: bool
     paper_bot_poll_seconds: int
     paper_bot_primary_timeframe: str
@@ -163,7 +175,7 @@ class Settings:
     log_level: str
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         # Resolve the project environment independently of the caller's working
         # directory. This keeps every entry script on the same configuration.
         env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -184,12 +196,10 @@ class Settings:
             risk_percent = min(0.5, max_risk_percent)
         min_rr_ratio = _safe_float(os.getenv("MIN_RR_RATIO"), 1.5)
         default_rr_ratio = _safe_float(os.getenv("DEFAULT_RR_RATIO"), 2.0)
-        if default_rr_ratio < min_rr_ratio:
-            default_rr_ratio = min_rr_ratio
+        default_rr_ratio = max(default_rr_ratio, min_rr_ratio)
         min_stop_multiplier = _safe_float(os.getenv("MIN_STOP_ATR_MULTIPLIER"), 0.8)
         max_stop_multiplier = _safe_float(os.getenv("MAX_STOP_ATR_MULTIPLIER"), 3.0)
-        if max_stop_multiplier < min_stop_multiplier:
-            max_stop_multiplier = min_stop_multiplier
+        max_stop_multiplier = max(max_stop_multiplier, min_stop_multiplier)
 
         return cls(
             mt5_login=login,
@@ -268,6 +278,12 @@ class Settings:
             paper_max_open_trades=_safe_bounded_int(os.getenv("PAPER_MAX_OPEN_TRADES"), 5, 1),
             paper_max_open_trades_per_symbol=_safe_bounded_int(os.getenv("PAPER_MAX_OPEN_TRADES_PER_SYMBOL"), 1, 1),
             paper_use_pre_execution_validation=_safe_bool(os.getenv("PAPER_USE_PRE_EXECUTION_VALIDATION"), True),
+            paper_commission_per_lot_round_trip=_optional_nonnegative_float(
+                os.getenv("PAPER_COMMISSION_PER_LOT_ROUND_TRIP")
+            ),
+            paper_slippage_points_per_side=_optional_nonnegative_float(
+                os.getenv("PAPER_SLIPPAGE_POINTS_PER_SIDE")
+            ),
             paper_bot_loop_enabled=_safe_bool(os.getenv("PAPER_BOT_LOOP_ENABLED"), True),
             paper_bot_poll_seconds=_safe_bounded_int(os.getenv("PAPER_BOT_POLL_SECONDS"), 30, 1),
             paper_bot_primary_timeframe=os.getenv("PAPER_BOT_PRIMARY_TIMEFRAME", "M5").strip().upper() or "M5",

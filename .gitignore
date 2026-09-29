@@ -1,0 +1,18 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.pytest_cache/
+data/logs/*.log
+data/live/*.csv
+data/historical/*.csv
+# Generated trading data and local runtime reports stay on this machine.
+data/logs/**
+!data/logs/.gitkeep
+data/live/**
+!data/live/.gitkeep
+venv/
+.venv/
+.idea/
+.vscode/

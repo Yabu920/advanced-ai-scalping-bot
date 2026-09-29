@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from risk.account import calculate_risk_amount, normalize_account_info
+from risk.account import (
+    calculate_effective_risk_percent,
+    calculate_risk_amount,
+    normalize_account_info,
+)
 from risk.lot_size import estimate_lot_size
-from risk.sl_tp import calculate_atr_stop_distance, build_sl_tp_prices, validate_sl_tp
+from risk.sl_tp import build_sl_tp_prices, calculate_atr_stop_distance, validate_sl_tp
 
 
 def _nested(source: dict[str, Any], *keys: str) -> Any:
@@ -88,7 +92,13 @@ class TradePlanBuilder:
             self.settings.risk_per_trade_percent,
             self.settings.use_fixed_risk_amount,
             self.settings.fixed_risk_amount,
+            self.settings.max_risk_per_trade_percent,
         )
+        effective_risk_percent = calculate_effective_risk_percent(account, risk_amount)
+        if self.settings.use_fixed_risk_amount and risk_amount < self.settings.fixed_risk_amount:
+            notes.append(
+                "Fixed risk amount was capped by MAX_RISK_PER_TRADE_PERCENT."
+            )
 
         stop_distance = 0.0
         sl_tp = {"stop_loss": None, "take_profit": None, "stop_distance": 0.0, "tp_distance": 0.0, "rr_ratio": rr_ratio}
@@ -126,7 +136,7 @@ class TradePlanBuilder:
             "stop_loss": sl_tp.get("stop_loss"),
             "take_profit": sl_tp.get("take_profit"),
             "risk_amount": risk_amount,
-            "risk_percent": self.settings.risk_per_trade_percent,
+            "risk_percent": effective_risk_percent,
             "lot_size": lot_result.get("lot_size", 0.0),
             "rr_ratio": rr_ratio,
             "stop_distance": sl_tp.get("stop_distance", stop_distance),

@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-
 OPEN = "OPEN"
 CLOSED_TP = "CLOSED_TP"
 CLOSED_SL = "CLOSED_SL"
@@ -40,6 +39,13 @@ def _nested(source: dict[str, Any], *keys: str) -> Any:
     return current
 
 
+def _safe_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _extract_signal_candle_time(plan: dict[str, Any]) -> str | None:
     candidates = [
         plan.get("opened_candle_time"),
@@ -63,6 +69,9 @@ def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
     validation = validation or {}
     created_time = _utc_now()
     signal_candle_time = _extract_signal_candle_time(plan) or created_time
+    spread_cost_check = _nested(validation, "checks", "costs", "spread_cost") or {}
+    spread_cost_known = spread_cost_check.get("known") is True
+    spread_cost_amount = _safe_float(spread_cost_check.get("spread_cost")) if spread_cost_known else None
     return {
         "paper_trade_id": f"paper-{uuid4()}",
         "created_time_utc": created_time,
@@ -81,6 +90,9 @@ def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
         "risk_amount": plan.get("risk_amount"),
         "risk_percent": plan.get("risk_percent"),
         "rr_ratio": plan.get("rr_ratio"),
+        "spread_points_at_entry": _safe_float(spread_cost_check.get("spread_points")),
+        "spread_cost_amount": spread_cost_amount,
+        "spread_cost_known": spread_cost_known and spread_cost_amount is not None,
         "signal_score": plan.get("signal_score"),
         "signal_status": plan.get("signal_status"),
         "paper_experiment_name": plan.get("paper_experiment_name") or "baseline",
@@ -95,8 +107,12 @@ def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
         "open_reason": "",
         "close_time_utc": None,
         "close_price": None,
+        "gross_pnl_amount": None,
+        "gross_pnl_r": None,
+        "total_cost_amount": None,
         "pnl_amount": None,
         "pnl_r": None,
+        "pnl_basis": None,
         "close_reason": None,
         "issues": [],
     }

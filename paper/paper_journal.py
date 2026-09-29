@@ -12,8 +12,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from paper.paper_trade import CLOSED_MANUAL, CLOSED_SL, CLOSED_TP, EXPIRED, INVALID, OPEN
-
+from paper.paper_trade import (
+    CLOSED_MANUAL,
+    CLOSED_SL,
+    CLOSED_TP,
+    EXPIRED,
+    INVALID,
+    OPEN,
+)
 
 CSV_FIELDS = [
     "paper_trade_id",
@@ -33,6 +39,9 @@ CSV_FIELDS = [
     "risk_amount",
     "risk_percent",
     "rr_ratio",
+    "spread_points_at_entry",
+    "spread_cost_amount",
+    "spread_cost_known",
     "signal_score",
     "signal_status",
     "paper_experiment_name",
@@ -40,8 +49,12 @@ CSV_FIELDS = [
     "paper_filter_summary",
     "close_time_utc",
     "close_price",
+    "gross_pnl_amount",
+    "gross_pnl_r",
+    "total_cost_amount",
     "pnl_amount",
     "pnl_r",
+    "pnl_basis",
     "close_reason",
 ]
 

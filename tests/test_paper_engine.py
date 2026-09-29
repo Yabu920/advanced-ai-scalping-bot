@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pandas as pd
-
 from paper.paper_engine import PaperExecutionEngine
 from paper.paper_trade import CLOSED_SL, CLOSED_TP, OPEN
 
@@ -139,3 +137,36 @@ def test_sell_sl_hit_closes_as_sl() -> None:
 def test_same_candle_tp_and_sl_closes_as_sl_conservative() -> None:
     result = PaperExecutionEngine(settings()).update_open_trade_with_candle(trade("BUY"), {"high": 111, "low": 94, "time": "t"})
     assert result["status"] == CLOSED_SL
+
+
+def test_tp_pnl_subtracts_validated_spread_cost() -> None:
+    open_trade = {
+        **trade("BUY"),
+        "spread_cost_known": True,
+        "spread_cost_amount": 0.5,
+    }
+    result = PaperExecutionEngine(settings()).update_open_trade_with_candle(
+        open_trade,
+        {"high": 111, "low": 99, "time": "t"},
+    )
+    assert result["gross_pnl_amount"] == 10.0
+    assert result["total_cost_amount"] == 0.5
+    assert result["pnl_amount"] == 9.5
+    assert result["pnl_r"] == 1.9
+    assert result["pnl_basis"] == "NET_AFTER_SPREAD"
+
+
+def test_sl_pnl_includes_validated_spread_cost() -> None:
+    open_trade = {
+        **trade("BUY"),
+        "spread_cost_known": True,
+        "spread_cost_amount": 0.5,
+    }
+    result = PaperExecutionEngine(settings()).update_open_trade_with_candle(
+        open_trade,
+        {"high": 101, "low": 94, "time": "t"},
+    )
+    assert result["gross_pnl_amount"] == -5.0
+    assert result["pnl_amount"] == -5.5
+    assert result["pnl_r"] == -1.1
+    assert result["pnl_basis"] == "NET_AFTER_SPREAD"

@@ -16,6 +16,12 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _extend_unique(target: list[str], values: list[str]) -> None:
+    for value in values:
+        if value not in target:
+            target.append(value)
+
+
 def estimate_spread_cost(plan: dict, symbol_info: dict | None, spread_points: float | None) -> dict[str, Any]:
     issues: list[str] = []
     constraints = extract_broker_constraints(symbol_info)
@@ -128,15 +134,15 @@ def validate_trading_costs(
     if spread_cost["known"] and cost_risk_percent is not None and cost_risk_percent > settings.max_spread_cost_risk_percent:
         issues.append("Spread cost is too high compared to risk amount.")
     elif not spread_cost["known"]:
-        warnings.extend(spread_cost["issues"])
+        _extend_unique(issues, spread_cost["issues"])
 
     net_rr_value = net_rr.get("net_rr_after_spread")
     if net_rr["known"] and net_rr_value is not None and net_rr_value < settings.min_net_rr_after_spread:
         issues.append("Net RR after spread is below minimum.")
     elif not net_rr["known"]:
-        warnings.extend(net_rr["issues"])
+        _extend_unique(issues, net_rr["issues"])
 
-    warnings.extend(ratios["issues"])
+    _extend_unique(issues, ratios["issues"])
     return {
         "valid": not issues,
         "issues": issues,

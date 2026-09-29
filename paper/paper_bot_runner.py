@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 
@@ -15,12 +16,18 @@ from mt5.market_data import MarketDataService
 from mt5.symbols import SymbolService
 from paper.paper_analysis import analyze_closed_paper_trades
 from paper.paper_analysis_summary import build_paper_analysis_markdown
-from paper.paper_journal import PaperJournal, to_json_safe
-from paper.paper_trade import OPEN
 from paper.paper_engine import PaperExecutionEngine
 from paper.paper_filters import paper_filter_summary
-from paper.paper_monitor import build_paper_status_report, enrich_open_trades_with_market_data
-from paper.paper_performance import append_performance_snapshot, calculate_paper_performance
+from paper.paper_journal import PaperJournal, to_json_safe
+from paper.paper_monitor import (
+    build_paper_status_report,
+    enrich_open_trades_with_market_data,
+)
+from paper.paper_performance import (
+    append_performance_snapshot,
+    calculate_paper_performance,
+)
+from paper.paper_trade import OPEN
 from risk.pre_execution_validator import PreExecutionValidator
 from risk.trade_plan import TradePlanBuilder
 from strategy.market_analyzer import MarketAnalyzer
@@ -51,7 +58,7 @@ class PaperBotRunner:
         )
         self.sleep_fn = sleep_fn
         self.logger = logger
-        self.last_primary_candle_time: str | None = None
+        self.last_closed_candle_times: dict[tuple[str, str], pd.Timestamp] = {}
 
     @staticmethod
     def _utc_now() -> str:
@@ -82,30 +89,37 @@ class PaperBotRunner:
         with path.open("a", encoding="utf-8") as file:
             file.write(f"{self._utc_now()} | {message}\n")
 
-    def latest_closed_candle_time(self, data: dict[str, dict[str, pd.DataFrame]]) -> str | None:
-        times: list[pd.Timestamp] = []
-        timeframe = self.settings.paper_bot_primary_timeframe
-        for symbol_data in data.values():
-            df = symbol_data.get(timeframe)
-            if df is None or df.empty or "time" not in df.columns:
-                continue
-            if "is_closed_candle" in df.columns:
-                closed = df[df["is_closed_candle"] == True]
-            else:
-                closed = df.iloc[:-1] if len(df) > 1 else df.iloc[0:0]
-            if closed.empty:
-                continue
-            times.append(pd.Timestamp(closed.iloc[-1]["time"]))
-        if not times:
+    @staticmethod
+    def _closed_time(df: pd.DataFrame | None) -> pd.Timestamp | None:
+        if df is None or df.empty or "time" not in df.columns:
             return None
-        return max(times).isoformat()
+        if "is_closed_candle" in df.columns:
+            closed = df[df["is_closed_candle"] == True]
+        else:
+            closed = df.iloc[:-1]
+        if closed.empty:
+            return None
+        times = pd.to_datetime(closed["time"], errors="coerce", utc=True).dropna()
+        return times.max() if not times.empty else None
 
-    def should_skip_for_candle(self, latest_candle_time: str | None) -> bool:
-        if not self.settings.paper_bot_run_on_new_candle_only:
-            return False
-        if latest_candle_time is None:
-            return True
-        return latest_candle_time == self.last_primary_candle_time
+    def signal_candle_times(self, data: dict[str, dict[str, pd.DataFrame]]) -> dict[tuple[str, str], pd.Timestamp]:
+        signal_timeframes = getattr(self.settings, "signal_timeframes", self.settings.timeframes)
+        times: dict[tuple[str, str], pd.Timestamp] = {}
+        for symbol, symbol_data in data.items():
+            for timeframe in signal_timeframes:
+                timestamp = self._closed_time(symbol_data.get(timeframe))
+                if timestamp is not None:
+                    times[(symbol, timeframe)] = timestamp
+        return times
+
+    def latest_closed_candle_time(self, data: dict[str, dict[str, pd.DataFrame]]) -> str | None:
+        timeframe = self.settings.paper_bot_primary_timeframe
+        times = [
+            timestamp
+            for symbol_data in data.values()
+            if (timestamp := self._closed_time(symbol_data.get(timeframe))) is not None
+        ]
+        return max(times).isoformat() if times else None
 
     def closed_trade_count(self) -> int:
         return len(self.journal.get_closed_trades())
@@ -163,11 +177,18 @@ class PaperBotRunner:
             self.settings.bars_per_timeframe,
         )
         latest_candle_time = self.latest_closed_candle_time(data)
-        skipped = self.should_skip_for_candle(latest_candle_time)
+        candle_times = self.signal_candle_times(data)
+        changed_keys = {
+            key
+            for key, timestamp in candle_times.items()
+            if key not in self.last_closed_candle_times or timestamp > self.last_closed_candle_times[key]
+        }
+        skipped = self.settings.paper_bot_run_on_new_candle_only and not changed_keys
         heartbeat = {
             "heartbeat_time_utc": self._utc_now(),
             "cycle": cycle_number,
             "latest_closed_candle_time": latest_candle_time,
+            "new_signal_candles": [f"{symbol}/{timeframe}" for symbol, timeframe in sorted(changed_keys)],
             "skipped": skipped,
             "reason": "No new closed candle." if skipped else "Processed cycle.",
         }
@@ -185,7 +206,6 @@ class PaperBotRunner:
                 "closed_trades": self.journal.get_closed_trades(),
             }
 
-        self.last_primary_candle_time = latest_candle_time
         spread_map = {symbol: self.market_data.get_spread_points(symbol) for symbol in data}
         analysis = MarketAnalyzer().analyze_market(data, spread_map)
         signals = SignalEngine().generate_market_signals(data, analysis, self.settings)
@@ -194,6 +214,15 @@ class PaperBotRunner:
         plans = TradePlanBuilder(self.settings).build_plans_from_signals(signals, account_info, symbol_info_map)
         existing_open = self.journal.load_open_trades()
         plans = self.filter_duplicate_same_candle_plans(plans, existing_open)
+        if self.settings.paper_bot_run_on_new_candle_only:
+            plans = {
+                symbol: {
+                    timeframe: plan
+                    for timeframe, plan in symbol_plans.items()
+                    if (symbol, timeframe) in changed_keys
+                }
+                for symbol, symbol_plans in plans.items()
+            }
         validations = PreExecutionValidator().validate_plans(plans, symbol_info_map, account_info, spread_map, self.settings)
 
         engine = PaperExecutionEngine(self.settings)
@@ -247,6 +276,9 @@ class PaperBotRunner:
             f"Cycle {cycle_number}: new={len(new_trades)} closed={heartbeat['trades_closed_this_cycle']} "
             f"open={len(current_open)} total_closed={len(closed_trades)} filtered="
             f"{len([item for item in candidate_decisions if item['filtered_by_paper_filters']])}"
+        )
+        self.last_closed_candle_times.update(
+            {key: candle_times[key] for key in changed_keys}
         )
         return {
             "cycle": cycle_number,

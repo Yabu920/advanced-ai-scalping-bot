@@ -71,6 +71,8 @@ python scripts/check_market_data.py
 
 Each fetched candle DataFrame includes `is_closed_candle`. The last candle is marked `False` because it may still be forming; all previous candles are marked `True`. This matters because future signal logic should confirm signals on closed candles, keeping live behavior consistent with backtests.
 
+Live collection compares the newest candle with both the broker's latest tick and the current clock. Newly selected symbols are retried briefly while MT5 synchronizes their history. Data that remains stale is rejected instead of being passed to analysis or paper trading.
+
 ## Stage 3 Market Analysis
 
 Stage 3 adds a market condition analysis engine on top of the Stage 2 data collector.

@@ -2,24 +2,62 @@
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Any
 
 import MetaTrader5 as mt5
 import pandas as pd
 
 from config.symbols import normalize_symbol
-from config.timeframes import get_timeframe
+from config.timeframes import get_timeframe, get_timeframe_seconds
 from utils.logger import setup_logger
 
-
 REQUIRED_RATE_COLUMNS = ["time", "open", "high", "low", "close", "tick_volume", "spread"]
+HISTORY_SYNC_ATTEMPTS = 5
+HISTORY_SYNC_DELAY_SECONDS = 0.5
+MAX_LIVE_TICK_AGE_SECONDS = 5 * 60
+
+
+def _value(source: Any, key: str) -> Any:
+    if isinstance(source, dict):
+        return source.get(key)
+    value = getattr(source, key, None)
+    if value is not None:
+        return value
+    try:
+        return source[key]
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
+def rates_are_fresh(rates: Any, tick: Any, timeframe: str, current_time: float | None = None) -> bool:
+    """Compare the newest candle with the broker's latest tick, not wall time.
+
+    Broker tick time detects candles trailing current quotes. Wall-clock tick
+    age also rejects an entirely stale cache or a closed market, which is the
+    conservative behavior required by the live paper runner.
+    """
+    if rates is None or len(rates) == 0 or tick is None:
+        return False
+    latest_rate_time = _value(rates[-1], "time")
+    latest_tick_time = _value(tick, "time")
+    try:
+        lag_seconds = float(latest_tick_time) - float(latest_rate_time)
+        tick_age_seconds = (time.time() if current_time is None else current_time) - float(latest_tick_time)
+    except (TypeError, ValueError):
+        return False
+    maximum_lag = max(180, 2 * get_timeframe_seconds(timeframe))
+    tick_is_live = -60 <= tick_age_seconds <= MAX_LIVE_TICK_AGE_SECONDS
+    return tick_is_live and -get_timeframe_seconds(timeframe) <= lag_seconds <= maximum_lag
 
 
 class MarketDataService:
     """Collect candle, tick, and spread data from MT5."""
 
-    def __init__(self, log_level: str = "INFO") -> None:
+    def __init__(self, log_level: str = "INFO", sleep_fn: Callable[[float], None] = time.sleep) -> None:
         self.logger = setup_logger(__name__, log_level)
+        self.sleep_fn = sleep_fn
 
     def ensure_symbol(self, symbol: str) -> bool:
         normalized = normalize_symbol(symbol)
@@ -53,7 +91,34 @@ class MarketDataService:
             self.logger.error(str(exc))
             return pd.DataFrame()
 
-        rates = mt5.copy_rates_from_pos(normalized, mt5_timeframe, 0, bars)
+        rates = None
+        tick = None
+        for attempt in range(1, HISTORY_SYNC_ATTEMPTS + 1):
+            rates = mt5.copy_rates_from_pos(normalized, mt5_timeframe, 0, bars)
+            tick = mt5.symbol_info_tick(normalized)
+            if rates_are_fresh(rates, tick, timeframe):
+                break
+            if attempt < HISTORY_SYNC_ATTEMPTS:
+                if attempt == 1:
+                    self.logger.warning(
+                        "Waiting for current MT5 history for %s %s; cached candles are stale.",
+                        normalized,
+                        timeframe,
+                    )
+                self.sleep_fn(HISTORY_SYNC_DELAY_SECONDS)
+        else:
+            latest_rate_time = _value(rates[-1], "time") if rates is not None and len(rates) else None
+            latest_tick_time = _value(tick, "time")
+            self.logger.error(
+                "Rejecting stale MT5 history for %s %s after %s attempts (rate_time=%s, tick_time=%s).",
+                normalized,
+                timeframe,
+                HISTORY_SYNC_ATTEMPTS,
+                latest_rate_time,
+                latest_tick_time,
+            )
+            return pd.DataFrame()
+
         if rates is None:
             self.logger.warning("MT5 returned no rates for %s %s: %s", normalized, timeframe, mt5.last_error())
             return pd.DataFrame()

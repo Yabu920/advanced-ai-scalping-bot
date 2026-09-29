@@ -56,9 +56,12 @@ class PaperExecutionEngine:
                 return {"allowed": False, "reason": "Paper simulation is restricted to ELIGIBLE signals."}
             if not self.settings.paper_include_watchlist:
                 return {"allowed": False, "reason": "WATCHLIST paper simulation is disabled."}
-            if self.settings.paper_use_pre_execution_validation:
-                if not (validation.get("plan_valid") and validation.get("broker_constraints_valid") and validation.get("costs_valid")):
-                    return {"allowed": False, "reason": "WATCHLIST plan failed pre-execution validation."}
+            if self.settings.paper_use_pre_execution_validation and not (
+                validation.get("plan_valid")
+                and validation.get("broker_constraints_valid")
+                and validation.get("costs_valid")
+            ):
+                return {"allowed": False, "reason": "WATCHLIST plan failed pre-execution validation."}
             normal_reason = "WATCHLIST plan allowed for preview paper simulation."
 
         elif status == "ELIGIBLE":
@@ -238,11 +241,32 @@ class PaperExecutionEngine:
             updated_trade["close_time_utc"] = candle_time.isoformat() if candle_time is not None else str(raw_candle_time)
             updated_trade["close_price"] = close_price
             if close_status == CLOSED_TP:
-                updated_trade["pnl_amount"] = float(updated_trade.get("risk_amount", 0)) * float(updated_trade.get("rr_ratio", 0))
-                updated_trade["pnl_r"] = float(updated_trade.get("rr_ratio", 0))
+                gross_pnl_amount = float(updated_trade.get("risk_amount", 0)) * float(updated_trade.get("rr_ratio", 0))
+                gross_pnl_r = float(updated_trade.get("rr_ratio", 0))
             else:
-                updated_trade["pnl_amount"] = -float(updated_trade.get("risk_amount", 0))
-                updated_trade["pnl_r"] = -1
+                gross_pnl_amount = -float(updated_trade.get("risk_amount", 0))
+                gross_pnl_r = -1.0
+
+            updated_trade["gross_pnl_amount"] = gross_pnl_amount
+            updated_trade["gross_pnl_r"] = gross_pnl_r
+            spread_cost = updated_trade.get("spread_cost_amount")
+            spread_cost_known = updated_trade.get("spread_cost_known") is True
+            if spread_cost_known and spread_cost is not None:
+                total_cost_amount = max(float(spread_cost), 0.0)
+                risk_amount = float(updated_trade.get("risk_amount", 0))
+                updated_trade["total_cost_amount"] = total_cost_amount
+                updated_trade["pnl_amount"] = gross_pnl_amount - total_cost_amount
+                updated_trade["pnl_r"] = (
+                    updated_trade["pnl_amount"] / risk_amount if risk_amount > 0 else gross_pnl_r
+                )
+                updated_trade["pnl_basis"] = "NET_AFTER_SPREAD"
+            else:
+                updated_trade["total_cost_amount"] = None
+                updated_trade["pnl_amount"] = gross_pnl_amount
+                updated_trade["pnl_r"] = gross_pnl_r
+                updated_trade["pnl_basis"] = "GROSS_SPREAD_UNKNOWN"
+                if "Spread cost unavailable; reported PnL is gross." not in issues:
+                    issues.append("Spread cost unavailable; reported PnL is gross.")
             updated_trade["close_reason"] = close_reason
             return updated_trade
 

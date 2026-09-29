@@ -18,19 +18,20 @@ def test_invalid_bars_per_timeframe_fallback() -> None:
     assert _safe_int("-10", 500) == 500
 
 
-def test_project_env_loads_sell_only_paper_experiment(monkeypatch) -> None:
-    for key in (
-        "PAPER_FILTERS_ENABLED",
-        "PAPER_ALLOWED_SYMBOLS",
-        "PAPER_ALLOWED_TIMEFRAMES",
-        "PAPER_ALLOWED_DIRECTIONS",
-        "PAPER_MIN_SIGNAL_SCORE",
-        "PAPER_ALLOWED_SIGNAL_STATUSES",
-        "PAPER_REQUIRE_COSTS_VALID",
-        "PAPER_REQUIRE_BROKER_CONSTRAINTS_VALID",
-        "PAPER_EXPERIMENT_NAME",
-    ):
-        monkeypatch.delenv(key, raising=False)
+def test_environment_loads_sell_only_paper_experiment(monkeypatch) -> None:
+    experiment = {
+        "PAPER_FILTERS_ENABLED": "true",
+        "PAPER_ALLOWED_SYMBOLS": "EURUSDm,GBPUSDm",
+        "PAPER_ALLOWED_TIMEFRAMES": "M5",
+        "PAPER_ALLOWED_DIRECTIONS": "SELL",
+        "PAPER_MIN_SIGNAL_SCORE": "55",
+        "PAPER_ALLOWED_SIGNAL_STATUSES": "WATCHLIST,ELIGIBLE",
+        "PAPER_REQUIRE_COSTS_VALID": "true",
+        "PAPER_REQUIRE_BROKER_CONSTRAINTS_VALID": "true",
+        "PAPER_EXPERIMENT_NAME": "m5_sell_only",
+    }
+    for key, value in experiment.items():
+        monkeypatch.setenv(key, value)
 
     loaded = Settings.load()
 

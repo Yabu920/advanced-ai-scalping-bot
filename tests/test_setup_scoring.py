@@ -44,6 +44,36 @@ def test_low_volatility_causes_rejected() -> None:
     assert "LOW_VOLATILITY" in result["rejection_reasons"]
 
 
+def test_extreme_volatility_cannot_become_eligible_from_score() -> None:
+    result = score_setup(
+        "EURUSDm",
+        "M5",
+        sample_df(),
+        analysis("HIGH_VOLATILITY", False, "extreme"),
+        bias("bullish", 100),
+        settings(),
+    )
+
+    assert result["score"] >= result["max_score"] * 0.70
+    assert result["status"] == "REJECTED"
+    assert "EXTREME_VOLATILITY" in result["rejection_reasons"]
+
+
+def test_any_non_tradable_regime_cannot_become_eligible_from_score() -> None:
+    result = score_setup(
+        "EURUSDm",
+        "M5",
+        sample_df(),
+        analysis("UNKNOWN", False, "unknown"),
+        bias("bullish", 100),
+        settings(),
+    )
+
+    assert result["score"] >= result["max_score"] * 0.70
+    assert result["status"] == "REJECTED"
+    assert "TIMEFRAME_NOT_TRADABLE" in result["rejection_reasons"]
+
+
 def test_strong_bullish_setup_can_become_eligible() -> None:
     result = score_setup("EURUSDm", "M1", sample_df(), analysis(), bias("bullish", 90), settings())
     assert result["status"] == "ELIGIBLE"

@@ -33,3 +33,11 @@ def test_by_symbol_grouping() -> None:
 def test_by_timeframe_grouping() -> None:
     result = calculate_paper_performance(closed_trades())
     assert result["by_timeframe"]["M1"]["total_closed"] == 2
+
+
+def test_cost_completeness_is_explicit() -> None:
+    trades = closed_trades()
+    trades[0]["cost_model_complete"] = True
+    result = calculate_paper_performance(trades)
+    assert result["complete_cost_trades"] == 1
+    assert result["incomplete_cost_trades"] == 2

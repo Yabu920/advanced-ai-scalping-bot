@@ -1,4 +1,10 @@
-from paper.paper_trade import ELIGIBLE_SIGNAL, INVALID, OPEN, WATCHLIST_SIGNAL, build_paper_trade_from_plan
+from paper.paper_trade import (
+    ELIGIBLE_SIGNAL,
+    INVALID,
+    OPEN,
+    WATCHLIST_SIGNAL,
+    build_paper_trade_from_plan,
+)
 
 
 def plan(status: str = "ELIGIBLE") -> dict:
@@ -44,3 +50,21 @@ def test_missing_buy_sell_direction_returns_invalid() -> None:
     bad["direction"] = "NO_TRADE"
     trade = build_paper_trade_from_plan(bad)
     assert trade["status"] == INVALID
+
+
+def test_trade_captures_validated_spread_cost() -> None:
+    validation = {
+        "checks": {
+            "costs": {
+                "spread_cost": {
+                    "known": True,
+                    "spread_points": 10,
+                    "spread_cost": 0.75,
+                }
+            }
+        }
+    }
+    trade = build_paper_trade_from_plan(plan(), validation)
+    assert trade["spread_points_at_entry"] == 10.0
+    assert trade["spread_cost_amount"] == 0.75
+    assert trade["spread_cost_known"] is True

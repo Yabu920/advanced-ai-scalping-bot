@@ -1,6 +1,7 @@
+import csv
 import json
 
-from paper.paper_journal import PaperJournal
+from paper.paper_journal import CSV_FIELDS, PaperJournal
 from paper.paper_trade import CLOSED_TP, OPEN
 
 
@@ -95,3 +96,26 @@ def test_append_closed_trades_csv_avoids_duplicates(tmp_path) -> None:
     closed = trade(CLOSED_TP)
     assert j.append_closed_trades_csv([closed], str(path)) == 1
     assert j.append_closed_trades_csv([closed], str(path)) == 0
+
+
+def test_append_migrates_previous_csv_columns_without_losing_rows(tmp_path) -> None:
+    j = journal(tmp_path)
+    old_fields = [field for field in CSV_FIELDS if field not in {
+        "commission_amount", "slippage_points_per_side", "slippage_cost_amount", "cost_model_complete"
+    }]
+    for path in (j.csv_path, tmp_path / "closed.csv"):
+        with path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=old_fields)
+            writer.writeheader()
+            writer.writerow({"paper_trade_id": "prior"})
+
+    next_trade = {**trade(CLOSED_TP), "commission_amount": 0.0}
+    assert j.append_trades([next_trade]) == 1
+    assert j.append_closed_trades_csv([next_trade], str(tmp_path / "closed.csv")) == 1
+    for path in (j.csv_path, tmp_path / "closed.csv"):
+        with path.open(newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            rows = list(reader)
+            assert reader.fieldnames == CSV_FIELDS
+            assert [row["paper_trade_id"] for row in rows] == ["prior", "paper-1"]
+            assert rows[1]["commission_amount"] == "0.0"

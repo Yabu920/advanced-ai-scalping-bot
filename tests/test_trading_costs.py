@@ -60,3 +60,9 @@ def test_high_spread_to_atr_ratio_fails_validation() -> None:
     result = validate_trading_costs(plan(), symbol_info(), 100, 0.001, settings())
     assert result["valid"] is False
     assert any("Spread/ATR" in issue for issue in result["issues"])
+
+
+def test_unknown_spread_cost_fails_closed() -> None:
+    result = validate_trading_costs(plan(), {"point": 0.00001}, 10, 0.001, settings())
+    assert result["valid"] is False
+    assert any("tick value/tick size" in issue for issue in result["issues"])

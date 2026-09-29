@@ -40,6 +40,7 @@ def calculate_paper_performance(closed_trades: list[dict]) -> dict:
     total_closed = len(closed_trades)
     total_pnl = sum(_safe_float(trade.get("pnl_amount")) for trade in closed_trades)
     total_r = sum(r_values)
+    complete_cost_trades = len([trade for trade in closed_trades if trade.get("cost_model_complete") is True])
     return {
         "total_closed": total_closed,
         "wins": wins,
@@ -47,6 +48,8 @@ def calculate_paper_performance(closed_trades: list[dict]) -> dict:
         "win_rate": wins / total_closed * 100 if total_closed else 0.0,
         "total_pnl": total_pnl,
         "total_r": total_r,
+        "complete_cost_trades": complete_cost_trades,
+        "incomplete_cost_trades": total_closed - complete_cost_trades,
         "average_r": total_r / total_closed if total_closed else 0.0,
         "best_trade_r": max(r_values) if r_values else 0.0,
         "worst_trade_r": min(r_values) if r_values else 0.0,

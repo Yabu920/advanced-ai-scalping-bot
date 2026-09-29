@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,9 @@ CSV_FIELDS = [
     "spread_points_at_entry",
     "spread_cost_amount",
     "spread_cost_known",
+    "commission_amount",
+    "slippage_points_per_side",
+    "slippage_cost_amount",
     "signal_score",
     "signal_status",
     "paper_experiment_name",
@@ -55,8 +60,36 @@ CSV_FIELDS = [
     "pnl_amount",
     "pnl_r",
     "pnl_basis",
+    "cost_model_complete",
     "close_reason",
 ]
+
+
+def _upgrade_csv_schema(path: Path) -> None:
+    """Extend an older paper CSV before appending rows with new cost columns."""
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with path.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        prior_fields = reader.fieldnames or []
+        if prior_fields == CSV_FIELDS:
+            return
+        if not prior_fields or not set(prior_fields).issubset(CSV_FIELDS):
+            raise ValueError(f"Unrecognized paper CSV schema: {path}")
+        rows = list(reader)
+
+    temp_name = None
+    try:
+        with tempfile.NamedTemporaryFile("w", newline="", encoding="utf-8", dir=path.parent, delete=False) as file:
+            temp_name = file.name
+            writer = csv.DictWriter(file, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({field: row.get(field, "") for field in CSV_FIELDS})
+        os.replace(temp_name, path)
+    finally:
+        if temp_name and os.path.exists(temp_name):
+            os.unlink(temp_name)
 
 
 def _utc_now() -> str:
@@ -126,6 +159,7 @@ class PaperJournal:
     def append_trades(self, trades: list[dict]) -> int:
         if not trades:
             return 0
+        _upgrade_csv_schema(self.csv_path)
         file_exists = self.csv_path.exists() and self.csv_path.stat().st_size > 0
         with self.csv_path.open("a", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=CSV_FIELDS, extrasaction="ignore")
@@ -173,6 +207,7 @@ class PaperJournal:
         new_rows = [trade for trade in closed_trades if trade.get("paper_trade_id") not in existing_ids]
         if not new_rows:
             return 0
+        _upgrade_csv_schema(path)
         file_exists = path.exists() and path.stat().st_size > 0
         with path.open("a", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=CSV_FIELDS, extrasaction="ignore")

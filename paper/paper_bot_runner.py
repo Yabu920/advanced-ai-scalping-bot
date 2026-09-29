@@ -228,7 +228,7 @@ class PaperBotRunner:
         engine = PaperExecutionEngine(self.settings)
         updated_existing = engine.update_open_trades(existing_open, data)
         still_open = [trade for trade in updated_existing if trade.get("status") == OPEN]
-        new_trades = engine.create_paper_trades_from_plans(plans, validations, still_open)
+        new_trades = engine.create_paper_trades_from_plans(plans, validations, still_open, symbol_info_map)
         candidate_decisions = engine.last_candidate_decisions
         current_open = still_open + [trade for trade in new_trades if trade.get("status") == OPEN]
 
@@ -306,6 +306,7 @@ class PaperBotRunner:
                 f"Open trades: {len(result.get('open_trades', []))}",
                 f"Closed trades total: {closed_total} / {target}",
                 f"Current result: {performance.get('total_r', 0.0):+.1f}R | ${performance.get('total_pnl', 0.0):+.2f}",
+                f"Cost coverage: {performance.get('complete_cost_trades', 0)} complete / {performance.get('incomplete_cost_trades', 0)} incomplete; modeled paper result only",
                 f"Next check in {self.settings.paper_bot_poll_seconds} seconds",
             ]
         )

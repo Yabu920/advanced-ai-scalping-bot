@@ -346,6 +346,8 @@ Stage 10 writes:
 
 This is still paper trading only. It does not place real or demo MT5 orders. Demo auto-execution comes later only after enough clean paper evidence.
 
+Paper PnL deducts the validated entry spread. Optional `PAPER_COMMISSION_PER_LOT_ROUND_TRIP` (account currency) and `PAPER_SLIPPAGE_POINTS_PER_SIDE` (symbol points, adverse on both entry and exit) are deliberately blank by default. Enter `0` commission only when the connected MT5 account has no commission. Set a slippage stress assumption from observed fills; leaving it blank marks the trade cost model incomplete. The report counts complete and incomplete trades; a partial-cost PnL is not evidence of net profitability.
+
 ## Stage 10.1 Paper Filter Calibration
 
 Stage 10.1 adds configurable paper-only filters for controlled experiments. These filters affect only whether an already-generated candidate is admitted to paper simulation. They do not change signal generation, signal scoring, strategy thresholds, or market analysis.

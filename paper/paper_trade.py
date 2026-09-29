@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -41,9 +42,10 @@ def _nested(source: dict[str, Any], *keys: str) -> Any:
 
 def _safe_float(value: Any) -> float | None:
     try:
-        return float(value) if value is not None else None
+        parsed = float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+    return parsed if parsed is not None and math.isfinite(parsed) and parsed >= 0 else None
 
 
 def _extract_signal_candle_time(plan: dict[str, Any]) -> str | None:
@@ -64,9 +66,10 @@ def _extract_signal_candle_time(plan: dict[str, Any]) -> str | None:
     return None
 
 
-def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
+def _base_trade(plan: dict | None, validation: dict | None, modeled_costs: dict | None = None) -> dict[str, Any]:
     plan = plan or {}
     validation = validation or {}
+    modeled_costs = modeled_costs or {}
     created_time = _utc_now()
     signal_candle_time = _extract_signal_candle_time(plan) or created_time
     spread_cost_check = _nested(validation, "checks", "costs", "spread_cost") or {}
@@ -93,6 +96,9 @@ def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
         "spread_points_at_entry": _safe_float(spread_cost_check.get("spread_points")),
         "spread_cost_amount": spread_cost_amount,
         "spread_cost_known": spread_cost_known and spread_cost_amount is not None,
+        "commission_amount": modeled_costs.get("commission_amount"),
+        "slippage_points_per_side": modeled_costs.get("slippage_points_per_side"),
+        "slippage_cost_amount": modeled_costs.get("slippage_cost_amount"),
         "signal_score": plan.get("signal_score"),
         "signal_status": plan.get("signal_status"),
         "paper_experiment_name": plan.get("paper_experiment_name") or "baseline",
@@ -113,13 +119,14 @@ def _base_trade(plan: dict | None, validation: dict | None) -> dict[str, Any]:
         "pnl_amount": None,
         "pnl_r": None,
         "pnl_basis": None,
+        "cost_model_complete": False,
         "close_reason": None,
         "issues": [],
     }
 
 
-def build_paper_trade_from_plan(plan: dict, validation: dict | None = None) -> dict:
-    trade = _base_trade(plan, validation)
+def build_paper_trade_from_plan(plan: dict, validation: dict | None = None, modeled_costs: dict | None = None) -> dict:
+    trade = _base_trade(plan, validation, modeled_costs)
     issues = trade["issues"]
     if not plan or not plan.get("valid"):
         issues.append("Plan is missing or invalid.")

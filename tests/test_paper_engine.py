@@ -170,3 +170,62 @@ def test_sl_pnl_includes_validated_spread_cost() -> None:
     assert result["pnl_amount"] == -5.5
     assert result["pnl_r"] == -1.1
     assert result["pnl_basis"] == "NET_AFTER_SPREAD"
+
+
+def test_complete_cost_model_deducts_spread_commission_and_slippage() -> None:
+    open_trade = {
+        **trade("BUY"),
+        "spread_cost_known": True,
+        "spread_cost_amount": 0.5,
+        "commission_amount": 0.0,
+        "slippage_cost_amount": 0.4,
+    }
+    result = PaperExecutionEngine(settings()).update_open_trade_with_candle(
+        open_trade, {"high": 111, "low": 99, "time": "t"}
+    )
+    assert result["gross_pnl_amount"] == 10.0
+    assert result["total_cost_amount"] == 0.9
+    assert result["pnl_amount"] == 9.1
+    assert round(result["pnl_r"], 2) == 1.82
+    assert result["cost_model_complete"] is True
+    assert result["pnl_basis"] == "NET_AFTER_MODELED_COSTS"
+
+
+def test_missing_commission_and_slippage_labels_partial_pnl() -> None:
+    open_trade = {
+        **trade("BUY"),
+        "spread_cost_known": True,
+        "spread_cost_amount": 0.5,
+    }
+    result = PaperExecutionEngine(settings()).update_open_trade_with_candle(
+        open_trade, {"high": 111, "low": 99, "time": "t"}
+    )
+    assert result["pnl_amount"] == 9.5
+    assert result["cost_model_complete"] is False
+    assert result["pnl_basis"] == "NET_AFTER_SPREAD"
+    assert any("not fully cost-adjusted" in issue for issue in result["issues"])
+
+
+def test_created_trade_carries_cost_assumptions_through_close() -> None:
+    proposed = {
+        **plan(), "lot_size": 0.1, "risk_amount": 5.0, "rr_ratio": 2.0,
+        "entry_reference": 100, "stop_loss": 105, "take_profit": 90,
+    }
+    checked = {
+        **validation(), "checks": {"costs": {"spread_cost": {"known": True, "spread_cost": 0.5}}}
+    }
+    engine = PaperExecutionEngine(settings(
+        paper_commission_per_lot_round_trip=0.0,
+        paper_slippage_points_per_side=2.0,
+    ))
+    created = engine.create_paper_trades_from_plans(
+        {"EURUSDm": {"M5": proposed}}, {"EURUSDm": {"M5": checked}}, [],
+        {"EURUSDm": {"point": 0.00001, "trade_tick_size": 0.00001, "trade_tick_value": 1.0}},
+    )[0]
+    closed = engine.update_open_trade_with_candle(
+        created, {"high": 104, "low": 89, "time": "2099-01-01T00:00:00Z"}
+    )
+    assert closed["status"] == CLOSED_TP
+    assert closed["cost_model_complete"] is True
+    assert closed["total_cost_amount"] == 0.9
+    assert closed["pnl_amount"] == 9.1

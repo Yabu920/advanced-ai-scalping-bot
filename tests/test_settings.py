@@ -1,4 +1,10 @@
-from config.settings import Settings, _parse_symbols, _parse_timeframes, _safe_int
+from config.settings import (
+    Settings,
+    _optional_nonnegative_float,
+    _parse_symbols,
+    _parse_timeframes,
+    _safe_int,
+)
 
 
 def test_parsing_comma_separated_symbols() -> None:
@@ -16,6 +22,21 @@ def test_parsing_comma_separated_timeframes() -> None:
 def test_invalid_bars_per_timeframe_fallback() -> None:
     assert _safe_int("not-a-number", 500) == 500
     assert _safe_int("-10", 500) == 500
+
+
+def test_optional_paper_cost_assumptions_preserve_zero_and_unknown() -> None:
+    assert _optional_nonnegative_float("0") == 0.0
+    assert _optional_nonnegative_float("") is None
+    assert _optional_nonnegative_float("-1") is None
+    assert _optional_nonnegative_float("nan") is None
+
+
+def test_environment_loads_explicit_paper_costs(monkeypatch) -> None:
+    monkeypatch.setenv("PAPER_COMMISSION_PER_LOT_ROUND_TRIP", "0")
+    monkeypatch.setenv("PAPER_SLIPPAGE_POINTS_PER_SIDE", "2.5")
+    loaded = Settings.load()
+    assert loaded.paper_commission_per_lot_round_trip == 0.0
+    assert loaded.paper_slippage_points_per_side == 2.5
 
 
 def test_environment_loads_sell_only_paper_experiment(monkeypatch) -> None:

@@ -72,6 +72,21 @@ def _safe_float(value: str | None, default: float) -> float:
     return parsed if parsed > 0 else default
 
 
+def _safe_bounded_float(
+    value: str | None,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) and minimum <= parsed <= maximum else default
+
+
 def _optional_nonnegative_float(value: str | None) -> float | None:
     if value is None or not value.strip():
         return None
@@ -97,6 +112,7 @@ class Settings:
     mt5_password: str | None
     mt5_server: str | None
     mt5_path: str | None
+    mt5_server_time_offset_hours: float
     default_symbol: str
     default_timeframe: str
     default_bars: int
@@ -206,6 +222,12 @@ class Settings:
             mt5_password=_empty_to_none(os.getenv("MT5_PASSWORD")),
             mt5_server=_empty_to_none(os.getenv("MT5_SERVER")),
             mt5_path=_empty_to_none(os.getenv("MT5_PATH")),
+            mt5_server_time_offset_hours=_safe_bounded_float(
+                os.getenv("MT5_SERVER_TIME_OFFSET_HOURS"),
+                0.0,
+                -14.0,
+                14.0,
+            ),
             default_symbol=default_symbol,
             default_timeframe=default_timeframe,
             default_bars=default_bars,

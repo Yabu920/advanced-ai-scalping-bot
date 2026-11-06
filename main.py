@@ -62,7 +62,10 @@ def main() -> int:
         account_info = connection.get_account_info()
         print_account_summary(account_info)
 
-        market_data = MarketDataService(settings.log_level)
+        market_data = MarketDataService(
+            settings.log_level,
+            server_time_offset_hours=settings.mt5_server_time_offset_hours,
+        )
         df = market_data.get_rates(
             settings.default_symbol,
             settings.default_timeframe,

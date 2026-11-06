@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from typing import Any
@@ -31,12 +32,18 @@ def _value(source: Any, key: str) -> Any:
         return None
 
 
-def rates_are_fresh(rates: Any, tick: Any, timeframe: str, current_time: float | None = None) -> bool:
+def rates_are_fresh(
+    rates: Any,
+    tick: Any,
+    timeframe: str,
+    current_time: float | None = None,
+    server_time_offset_seconds: float = 0.0,
+) -> bool:
     """Compare the newest candle with the broker's latest tick, not wall time.
 
-    Broker tick time detects candles trailing current quotes. Wall-clock tick
-    age also rejects an entirely stale cache or a closed market, which is the
-    conservative behavior required by the live paper runner.
+    Broker tick time detects candles trailing current quotes. The configured
+    server offset converts broker-local epochs to UTC before the wall-clock
+    age check. This still rejects an entirely stale cache or a closed market.
     """
     if rates is None or len(rates) == 0 or tick is None:
         return False
@@ -44,7 +51,8 @@ def rates_are_fresh(rates: Any, tick: Any, timeframe: str, current_time: float |
     latest_tick_time = _value(tick, "time")
     try:
         lag_seconds = float(latest_tick_time) - float(latest_rate_time)
-        tick_age_seconds = (time.time() if current_time is None else current_time) - float(latest_tick_time)
+        normalized_tick_time = float(latest_tick_time) - float(server_time_offset_seconds)
+        tick_age_seconds = (time.time() if current_time is None else current_time) - normalized_tick_time
     except (TypeError, ValueError):
         return False
     maximum_lag = max(180, 2 * get_timeframe_seconds(timeframe))
@@ -55,9 +63,19 @@ def rates_are_fresh(rates: Any, tick: Any, timeframe: str, current_time: float |
 class MarketDataService:
     """Collect candle, tick, and spread data from MT5."""
 
-    def __init__(self, log_level: str = "INFO", sleep_fn: Callable[[float], None] = time.sleep) -> None:
+    def __init__(
+        self,
+        log_level: str = "INFO",
+        sleep_fn: Callable[[float], None] = time.sleep,
+        server_time_offset_hours: float = 0.0,
+    ) -> None:
+        if not math.isfinite(server_time_offset_hours) or not -14.0 <= server_time_offset_hours <= 14.0:
+            raise ValueError("MT5 server time offset must be between -14 and +14 hours.")
         self.logger = setup_logger(__name__, log_level)
         self.sleep_fn = sleep_fn
+        self.server_time_offset_seconds = round(float(server_time_offset_hours) * 60 * 60)
+        if self.server_time_offset_seconds:
+            self.logger.info("Normalizing MT5 server timestamps by %+.2f hours.", server_time_offset_hours)
 
     def ensure_symbol(self, symbol: str) -> bool:
         normalized = normalize_symbol(symbol)
@@ -96,7 +114,12 @@ class MarketDataService:
         for attempt in range(1, HISTORY_SYNC_ATTEMPTS + 1):
             rates = mt5.copy_rates_from_pos(normalized, mt5_timeframe, 0, bars)
             tick = mt5.symbol_info_tick(normalized)
-            if rates_are_fresh(rates, tick, timeframe):
+            if rates_are_fresh(
+                rates,
+                tick,
+                timeframe,
+                server_time_offset_seconds=self.server_time_offset_seconds,
+            ):
                 break
             if attempt < HISTORY_SYNC_ATTEMPTS:
                 if attempt == 1:
@@ -132,7 +155,11 @@ class MarketDataService:
             self.logger.error("Rates data missing required columns: %s", missing)
             return pd.DataFrame()
 
-        df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+        df["time"] = pd.to_datetime(
+            df["time"] - self.server_time_offset_seconds,
+            unit="s",
+            utc=True,
+        )
         df["symbol"] = normalized
         df["requested_symbol"] = symbol
         df["broker_symbol"] = normalized
@@ -184,7 +211,13 @@ class MarketDataService:
         if tick is None:
             self.logger.warning("Latest tick unavailable for %s: %s", normalized, mt5.last_error())
             return None
-        return tick._asdict()
+        result = tick._asdict()
+        if self.server_time_offset_seconds:
+            if result.get("time") is not None:
+                result["time"] = result["time"] - self.server_time_offset_seconds
+            if result.get("time_msc") is not None:
+                result["time_msc"] = result["time_msc"] - (self.server_time_offset_seconds * 1000)
+        return result
 
     def get_spread_points(self, symbol: str) -> float | None:
         normalized = normalize_symbol(symbol)

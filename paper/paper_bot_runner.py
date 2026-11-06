@@ -49,7 +49,10 @@ class PaperBotRunner:
     ) -> None:
         self.settings = settings
         self.connection = connection or MT5Connection(settings)
-        self.market_data = market_data or MarketDataService(settings.log_level)
+        self.market_data = market_data or MarketDataService(
+            settings.log_level,
+            server_time_offset_hours=settings.mt5_server_time_offset_hours,
+        )
         self.symbol_service = symbol_service or SymbolService()
         self.journal = journal or PaperJournal(
             settings.paper_journal_path,

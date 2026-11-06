@@ -3,6 +3,7 @@ from config.settings import (
     _optional_nonnegative_float,
     _parse_symbols,
     _parse_timeframes,
+    _safe_bounded_float,
     _safe_int,
 )
 
@@ -29,6 +30,19 @@ def test_optional_paper_cost_assumptions_preserve_zero_and_unknown() -> None:
     assert _optional_nonnegative_float("") is None
     assert _optional_nonnegative_float("-1") is None
     assert _optional_nonnegative_float("nan") is None
+
+
+def test_signed_server_time_offset_is_bounded() -> None:
+    assert _safe_bounded_float("2", 0.0, -14.0, 14.0) == 2.0
+    assert _safe_bounded_float("-3.5", 0.0, -14.0, 14.0) == -3.5
+    assert _safe_bounded_float("20", 0.0, -14.0, 14.0) == 0.0
+    assert _safe_bounded_float("nan", 0.0, -14.0, 14.0) == 0.0
+
+
+def test_environment_loads_mt5_server_time_offset(monkeypatch) -> None:
+    monkeypatch.setenv("MT5_SERVER_TIME_OFFSET_HOURS", "2")
+    loaded = Settings.load()
+    assert loaded.mt5_server_time_offset_hours == 2.0
 
 
 def test_environment_loads_explicit_paper_costs(monkeypatch) -> None:

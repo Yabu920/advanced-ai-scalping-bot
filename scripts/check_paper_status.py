@@ -51,7 +51,10 @@ def main() -> int:
         if open_trades:
             symbols = sorted({trade.get("symbol") for trade in open_trades if trade.get("symbol")})
             timeframes = sorted({trade.get("timeframe") for trade in open_trades if trade.get("timeframe")})
-            data = MarketDataService(settings.log_level).get_multi_symbol_rates(symbols, timeframes, settings.bars_per_timeframe)
+            data = MarketDataService(
+                settings.log_level,
+                server_time_offset_hours=settings.mt5_server_time_offset_hours,
+            ).get_multi_symbol_rates(symbols, timeframes, settings.bars_per_timeframe)
         enriched_open = enrich_open_trades_with_market_data(open_trades, data)
         report = build_paper_status_report(enriched_open, closed_trades)
         performance = calculate_paper_performance(closed_trades)

@@ -42,6 +42,32 @@ def test_stale_cached_tick_cannot_make_stale_candles_look_current() -> None:
     assert rates_are_fresh(rates(1_000), {"time": 1_060}, "M1", current_time=10_000) is False
 
 
+def test_freshness_accepts_explicit_broker_server_offset() -> None:
+    assert (
+        rates_are_fresh(
+            rates(8_200),
+            {"time": 8_260},
+            "M1",
+            current_time=1_060,
+            server_time_offset_seconds=7_200,
+        )
+        is True
+    )
+
+
+def test_broker_offset_does_not_hide_a_stale_tick() -> None:
+    assert (
+        rates_are_fresh(
+            rates(8_200),
+            {"time": 8_260},
+            "M1",
+            current_time=10_000,
+            server_time_offset_seconds=7_200,
+        )
+        is False
+    )
+
+
 def test_get_rates_retries_stale_history_then_accepts_current_data(monkeypatch) -> None:
     responses = iter([rates(1_000), rates(1_990)])
     monkeypatch.setattr(market_data.mt5, "symbol_info", lambda symbol: SimpleNamespace(visible=True))
@@ -65,3 +91,18 @@ def test_get_rates_rejects_history_that_remains_stale(monkeypatch) -> None:
     result = MarketDataService(sleep_fn=lambda seconds: None).get_rates("EURUSDm", "M1", 2)
 
     assert result.empty
+
+
+def test_get_rates_normalizes_broker_server_time_to_utc(monkeypatch) -> None:
+    monkeypatch.setattr(market_data.mt5, "symbol_info", lambda symbol: SimpleNamespace(visible=True))
+    monkeypatch.setattr(market_data.mt5, "copy_rates_from_pos", lambda *args: rates(8_200))
+    monkeypatch.setattr(market_data.mt5, "symbol_info_tick", lambda symbol: SimpleNamespace(time=8_260))
+    monkeypatch.setattr(market_data.time, "time", lambda: 1_060)
+
+    result = MarketDataService(
+        sleep_fn=lambda seconds: None,
+        server_time_offset_hours=2,
+    ).get_rates("EURUSD", "M1", 2)
+
+    assert len(result) == 2
+    assert result["time"].iloc[-1] == pd.Timestamp(1_000, unit="s", tz="UTC")

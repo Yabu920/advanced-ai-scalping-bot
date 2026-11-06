@@ -59,9 +59,17 @@ Configure symbols and timeframes in `.env`:
 SYMBOLS=XAUUSDm,EURUSDm,GBPUSDm
 TIMEFRAMES=M1,M5,M15,H1
 BARS_PER_TIMEFRAME=500
+MT5_SERVER_TIME_OFFSET_HOURS=0
 ```
 
 `SYMBOLS` and `TIMEFRAMES` are comma-separated. Use the broker's exact symbol names, including suffixes like `XAUUSDm`, when needed.
+
+Keep `MT5_SERVER_TIME_OFFSET_HOURS=0` when MT5 timestamps are UTC. If a verified
+broker server encodes local server time as epoch time, set its explicit UTC
+offset so saved candles are normalized back to UTC. For example, a diagnostic
+showing MT5 exactly two hours ahead of the correct PC UTC clock requires `2`.
+Offsets are bounded to -14 through +14 hours; this setting does not weaken the
+five-minute stale-tick limit after normalization.
 
 Run the Stage 2 data check:
 

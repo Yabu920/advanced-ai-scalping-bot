@@ -38,6 +38,7 @@ def main() -> int:
     print(f"Symbols: {', '.join(settings.symbols)}")
     print(f"Timeframes: {', '.join(settings.timeframes)}")
     print(f"Bars per timeframe: {settings.bars_per_timeframe}")
+    print(f"MT5 server time offset: {settings.mt5_server_time_offset_hours:+g} hours")
 
     connection = MT5Connection(settings)
     if not connection.initialize():
@@ -47,7 +48,10 @@ def main() -> int:
         return 1
 
     try:
-        market_data = MarketDataService(settings.log_level)
+        market_data = MarketDataService(
+            settings.log_level,
+            server_time_offset_hours=settings.mt5_server_time_offset_hours,
+        )
         data = market_data.get_multi_symbol_rates(
             settings.symbols,
             settings.timeframes,

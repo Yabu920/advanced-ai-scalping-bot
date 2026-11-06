@@ -43,6 +43,7 @@ def main() -> int:
     print(f"Allowed statuses: {', '.join(settings.paper_allowed_signal_statuses) or 'any'}")
     print(f"Valid costs required: {str(settings.paper_require_costs_valid).lower()}")
     print(f"Valid broker constraints required: {str(settings.paper_require_broker_constraints_valid).lower()}")
+    print(f"MT5 server time offset: {settings.mt5_server_time_offset_hours:+g} hours")
     print(f"Active filters: {paper_filter_summary(settings)}")
 
     runner = PaperBotRunner(settings, logger=logger)

@@ -93,6 +93,17 @@ def detect_open_trade_price_breach(trade: dict, latest_closed_candle: dict | Non
     if trade.get("status") != OPEN or latest_closed_candle is None:
         return warning
 
+    # Entry is modeled at the signal candle close. Its earlier high/low cannot
+    # trigger a stop or target on a trade that did not yet exist.
+    opened_time = pd.to_datetime(
+        trade.get("opened_candle_time") or trade.get("signal_candle_time") or trade.get("created_time_utc"),
+        utc=True,
+        errors="coerce",
+    )
+    candle_time = pd.to_datetime(latest_closed_candle.get("time"), utc=True, errors="coerce")
+    if pd.isna(opened_time) or pd.isna(candle_time) or candle_time <= opened_time:
+        return warning
+
     high = _safe_float(latest_closed_candle.get("high"))
     low = _safe_float(latest_closed_candle.get("low"))
     stop_loss = _safe_float(trade.get("stop_loss"))
